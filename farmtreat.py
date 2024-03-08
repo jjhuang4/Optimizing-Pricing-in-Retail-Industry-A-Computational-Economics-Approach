@@ -10,13 +10,14 @@ from scipy.stats import multivariate_normal
 from scipy.stats import mstats
 from scipy.stats import t
 from makedata import dataProduct
-from sklearn.linear_model import LassoCV
+from sklearn.linear_model import LassoCV, LassoLarsIC
 from sklearn.decomposition import PCA
 import numpy.matlib
 
 def computeBetaLasso(Y,X): #function for LASSO regression
-    alpha = 1
+    alpha = 7
     lasso = LassoCV(alphas=[alpha])
+    #lasso = LassoLarsIC(criterion='bic')
     lasso.fit(X, Y)
     beta = lasso.coef_
     b = np.concatenate(([lasso.intercept_], beta))
@@ -25,6 +26,7 @@ def computeBetaLasso(Y,X): #function for LASSO regression
     return [b,e]
 
 def estimate(y,x,z,wx,wy,T0,T,flag):
+    #print("first", y.shape)
     if flag == 0:
         T_star = T0
     else:
@@ -53,6 +55,7 @@ def estimate(y,x,z,wx,wy,T0,T,flag):
     
 
     # Control units
+    count = 0
     for i in range(n):
         if wx.size > 0:
             a = np.reshape(wx[:,i], (T,1))
@@ -94,14 +97,25 @@ def estimate(y,x,z,wx,wy,T0,T,flag):
    
     Ay = np.reshape(Ay,(Ay.shape[0],1))
     Ry = np.reshape(Ry,(Ry.shape[0],1))
+
+    #(f"Ry shape: {Ry.shape}")
+    #print(f"Ay shape: {Ay.shape}")
+    #print(Ay)
     
     pca = PCA()  # Create a PCA object
     F = pca.fit_transform(Rx)  # Perform PCA and obtain the transformed data (scores)
     B = pca.components_ 
     B = np.delete(B,B.shape[0]-1,axis =0)
 
+    #print(f"F shape: {F.shape}")
+    #print(f"B shape: {B.shape}")
+    #print(f"Rx shape: {Rx.shape}")
+    #print(f"Ry shape: {Ry.shape}")
+
     a1 = np.reshape(Ry,(Ry.shape[0],1))
     a2 = np.empty((T-T_star-1,1))
+    #print(f"a1 shape: {a1.shape}")
+    #print(f"a2 shape: {a2.shape}")
     a3 = np.concatenate((a1,a2),axis =0)
        
     R = np.concatenate((a3, Rx), axis=1)
@@ -123,8 +137,9 @@ def estimate(y,x,z,wx,wy,T0,T,flag):
     FF = np.dot(F[:T_star+1, :r].T, F[:T_star+1, :r])
     FY = np.dot(F[:T_star+1, :r].T, Ry)
     b = np.linalg.solve(FF, FY)
-
+    #print(f"Small b shape: {b.shape}")
     B = np.concatenate((b, B[:r, :]), axis=1)
+    #print(f"Big B shape: {B.shape}")
    
     # Estimate counterfactual
     if flag_rank == 0:
@@ -156,8 +171,11 @@ def estimate(y,x,z,wx,wy,T0,T,flag):
     #FarmTreat
     a11 = np.dot(F[:,:r],B)
     U = R - a11
-   
-    
+
+    #print(f"r: {r.shape}")
+    #print(f"B shape: {B.shape}")
+    #print(f"U shape: {U.shape}")
+    #print(f"U {U[0:10]}")
 
     #Testing for idiosyncratic contribution
     matrix_a = U[0:T_star+1,0]
@@ -188,6 +206,9 @@ def estimate(y,x,z,wx,wy,T0,T,flag):
     b_farmtreat = np.reshape(b_farmtreat,(b_farmtreat.shape[0],1))
     v_farmtreat = np.reshape(v_farmtreat,(v_farmtreat.shape[0],1))
 
+    #print(f"U response: {U[:T_star+1,0][0:5]}")
+    #print(f"b farm shape: {b_farmtreat.shape}")
+    #print(f"v farm shape: {v_farmtreat.shape}")
 
     #Fitted Model in-sample
    
@@ -202,22 +223,38 @@ def estimate(y,x,z,wx,wy,T0,T,flag):
     a15 = np.dot(F[:, :r], B[:, 0])
     a16 = np.dot(np.concatenate((np.ones((T, 1)), U[:, 1:]), axis=1), b_farmtreat)
     a15 = np.reshape(a15,(T,1))
+    #print(f"a14 shape: {a14.shape}")
+    #print(f"a15 shape: {a15.shape}")
+    #print(f"a16 shape: {a16.shape}")
     y_farmtreat = a14 + a15 + a16
+
+    #print(f"y_farmtreat shape: {y_farmtreat.shape}")
+    #print(y_farmtreat[:5])
 
     a17 = np.reshape(y[T0+1:],(y[T0+1:].shape[0],1))
     a18 = np.reshape(y_farmtreat[T0+1:],(y_farmtreat[T0+1:].shape[0],1))
 
     d_farmtreat = a17 - a18
 
+    #print(f"d_farmtreat shape: {d_farmtreat.shape}")
+
     
     D_farmtreat = np.mean(d_farmtreat)
     D_farmtreat = np.reshape(D_farmtreat,(1,1))
-    
+
+    #print(f"D_farmtreat: {D_farmtreat}")
 
     R2_farmtreat = 1 - np.var(v_farmtreat) / np.var(y[:T0])
     R2_farmtreat = np.reshape(R2_farmtreat,(1,1))
 
-    
+   # print(f"var v_farm: {np.var(v_farmtreat)}")
+    #print(f"var y[:T0]: {np.var(y[:T0])}")
+    #print(f"y shape: {y.shape}")
+    #print(y[0:5])
+    #print(f"R2_farmtreat: {R2_farmtreat}")
+    print(f"Index: {count}\tD farmtreat: {D_farmtreat}\tR2 farmtreat: {R2_farmtreat}")
+    count += 1
+
     d_arco = d_arco.reshape(d_arco.shape[0])
     D_arco = D_arco[0][0]
     R2_arco = R2_arco[0][0]
@@ -357,7 +394,7 @@ def farmTreat(dataProduct_1,flag_trend,flag_state):
         zOOS = zOOS[:, 1:]
 
     for i in range(numTreat):
-        print(i)
+        #print(i)
         if np.isnan(np.sum(y[:, i])) == False:
             z_new = np.concatenate((z,zOOS))
             d_arco[:,i], D_arco[i][0], R2_arco[i][0], v_arco[:,i], y_arco[:,i], d_pcr[:,i], D_pcr[i][0],R2_pcr[i][0], v_pcr[:,i],y_pcr[:,i],d_farmtreat[:,i],D_farmtreat[i][0],R2_farmtreat[i][0],v_farmtreat[:,i],y_farmtreat[:,i],p4_farmtreat[i][0],numFactors[i][0] = estimate(np.concatenate((y[:, i], yOOS[:, i])), np.concatenate((x, xOOS)), z_new, wx, wy[:, i], T0-1, T, 0)
